@@ -25,7 +25,7 @@ jobs:
       - name: Fetch binaries metadata
         id: fetch_binaries
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.CORPUS_ACCESS_TOKEN }}
         run: |
           # Fetch the list of binaries from the binaries repository using the GitHub API
           fetch_files_from_tree() {
@@ -100,6 +100,8 @@ jobs:
           # Setup and install angr to this context
           pip install .
       - name: Fetch binary files and run analysis
+        env:
+          GITHUB_TOKEN: ${{ secrets.CORPUS_ACCESS_TOKEN }}
         run: |
           # Determine the environment variable name for the current chunk
           files_var="FILES_${{ matrix.chunk }}"
@@ -116,7 +118,7 @@ jobs:
               mkdir -p binaries/$(dirname $file)
             
               # Fetch the binary file from the binaries repository
-              curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              curl -s -H "Authorization: token $GITHUB_TOKEN" \
                 -o binaries/$file \
                   "https://raw.githubusercontent.com/${{ vars.CORPUS_GITHUB_OWNER }}/${{ vars.CORPUS_GITHUB_REPO }}/main/$file"
                 
