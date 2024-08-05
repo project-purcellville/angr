@@ -1,0 +1,28 @@
+name: Manual Commit of Decompilation Snapshots
+
+on:
+  workflow_dispatch:
+
+jobs:
+  fetch_artifacts:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout current repository
+        uses: actions/checkout@v2
+
+      - name: Download decompilation results
+        uses: actions/download-artifact@v2
+        with:
+          name: decompilation-results
+          path: insta_snapshots/
+
+      - name: Commit results
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git add insta_snapshots/
+          git commit -m "Manual commit of decompilation snapshots"
+          git push
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
