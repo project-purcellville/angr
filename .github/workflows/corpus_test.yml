@@ -12,39 +12,6 @@ on:
   workflow_dispatch:
 
 jobs:
-  build_and_cache_dependencies:
-    runs-on: ubuntu-latest
-    outputs:
-      cache-key: ${{ steps.cache-dependencies.outputs.cache-hit }}
-
-    steps:
-      - name: Checkout current repository
-        uses: actions/checkout@v2
-
-      - name: Set up Python
-        uses: actions/setup-python@v2
-        with:
-          python-version: "3.8"
-
-      - name: Cache Python dependencies
-        id: cache-dependencies
-        uses: actions/cache@v2
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
-
-      - name: Install dependencies
-        run: |
-          python3 -m pip install --upgrade pip
-          pip install pytest pytest-insta angr
-
-      - name: Save Python dependencies to cache
-        if: steps.cache-dependencies.outputs.cache-hit != 'true'
-        run: |
-          echo "Dependencies installed and cached."
-
   fetch_binaries_metadata:
     runs-on: ubuntu-latest
     # Expose step output as job output
@@ -52,9 +19,6 @@ jobs:
       chunks: ${{ steps.fetch_binaries.outputs.chunks }}
 
     steps:
-      - name: Checkout current repository
-        uses: actions/checkout@v2
-
       - name: Fetch binaries metadata
         id: fetch_binaries
         env:
@@ -129,7 +93,7 @@ jobs:
           echo "chunks=$(printf '%s\n' "${chunks[@]}" | jq -R -s -c 'split("\n")[:-1]')" >> "$GITHUB_OUTPUT"
 
   analyze_binaries:
-    needs: fetch_binaries_metadata
+    needs: [fetch_binaries_metadata]
     runs-on: ubuntu-latest
 
     strategy:
@@ -138,20 +102,52 @@ jobs:
 
     steps:
       - name: Checkout current repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
-      - name: Use cached dependencies
-        uses: actions/cache@v2
+      - name: Setup Python and Install Testing Dependencies
+        uses: actions/setup-python@v5
+        id: setup_python
         with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
+          python-version: "3.10"
+          cache: "pip"
+      - name: Restore venv Cache
+        uses: actions/cache/restore@v4
+        with:
+          key: venv-${{ runner.os }}-${{ steps.setup_python.outputs.python-version }}-${{ github.sha }}
+          path: .venv
+      - run: python -m venv .venv
+        name: Create venv
+        shell: bash
+      - run: |
+          source .venv/bin/activate
+          pip install "setuptools>=59" wheel cffi "unicorn==2.0.1"
+          pip install git+https://github.com/angr/archinfo.git
+          pip install git+https://github.com/angr/pyvex.git
+          pip install git+https://github.com/angr/cle.git
+          pip install git+https://github.com/angr/claripy.git
+          pip install git+https://github.com/angr/ailment.git
+        name: Install angr Dependencies
+      - run: |
+          source .venv/bin/activate
+          pip install --no-build-isolation .
+        name: Install angr
+      - run: |
+          source .venv/bin/activate
+          pip install pytest pytest-insta
+        name: Install test frameworks
+
+      - name: Save venv Cache
+        uses: actions/cache/save@v4
+        with:
+          key: venv-${{ runner.os }}-${{ steps.setup_python.outputs.python-version }}-${{ github.sha }}
+          path: .venv
 
       - name: Fetch binary files and run analysis
         env:
           GITHUB_TOKEN: ${{ secrets.CORPUS_ACCESS_TOKEN }}
         run: |
+          source .venv/bin/activate
+
           # Determine the environment variable name for the current chunk
           files="${{ matrix.chunk }}"
 
@@ -172,8 +168,18 @@ jobs:
               curl -s -H "Authorization: token $GITHUB_TOKEN" \
                 -o binaries/$file \
                   "https://raw.githubusercontent.com/${{ vars.CORPUS_GITHUB_OWNER }}/${{ vars.CORPUS_GITHUB_REPO }}/main/$file"
+
+              echo "Downloaded file $(ls binaries/$file)"
                 
               # Run Angr Analysis on the binary file
-              pytest --insta update-new --binary binaries/$binary
+              pytest --insta update-new --binary binaries/$file
             fi
           done
+
+          # TODO: figure out where to push the snapshots to for each binary
+          # git config --global user.name 'github-actions[bot]'
+          # git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          # TODO: use the new snapshots repository and commit the snapshot artifacts there
+          # git add insta_snapshots/
+          # git commit -m "Manual commit of decompilation snapshots"
+          # git push
