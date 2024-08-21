@@ -1,5 +1,5 @@
 import angr
-from angr.analyses.decompiler.decompilation_options import DecompilationOption
+from angr.analyses.decompiler.decompilation_options import PARAM_TO_OPTION
 import logging
 
 """
@@ -7,14 +7,6 @@ Invoke this test script with the `pytest --insta` switch to enable the snapshot 
 """
 
 logging.basicConfig(level=logging.CRITICAL, force=True)
-
-
-# Get different options for decompilation
-def get_decompilation_option(option_name: str) -> DecompilationOption:
-    options = angr.analyses.decompiler.decompilation_options.options
-    for option in options:
-        if option.cls == option_name or option.param == option_name:
-            return option
 
 
 def analyze_binary(binary_path):
@@ -39,11 +31,11 @@ def analyze_binary(binary_path):
                 # setting show_casts to false because of non-determinism
                 options=[
                     (
-                        get_decompilation_option("structurer_cls"),
+                        PARAM_TO_OPTION["structurer_cls"],
                         "Phoenix",
                     ),
                     (
-                        get_decompilation_option("show_casts"),
+                        PARAM_TO_OPTION["show_casts"],
                         False,
                     ),
                 ],
