@@ -175,11 +175,6 @@ jobs:
                   "https://raw.githubusercontent.com/${{ vars.CORPUS_GITHUB_OWNER }}/${{ vars.CORPUS_GITHUB_REPO }}/main/$file"
 
               echo "Downloaded file $(ls binaries/$file)"
-
-              # Attempt to fetch the snapshot if it exists
-              curl -s -H "Authorization: token $GITHUB_TOKEN" \
-                -o snapshots/$file \
-                  "https://raw.githubusercontent.com/${{ vars.SNAPSHOT_GITHUB_OWNER }}/${{ vars.SNAPSHOT_GITHUB_REPO }}/main/$file"
                 
               # Run Angr Analysis on the binary file
               pytest --insta update-new --binary binaries/$file
@@ -191,8 +186,13 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.CORPUS_ACCESS_TOKEN }}
         run: |
           # Clone the snapshots repo
-          git clone https://github.com/${{ vars.SNAPSHOT_GITHUB_OWNER }}/${{ vars.SNAPSHOT_GITHUB_REPO }}.git snapshots_repo
+          # NOTE: we shouldn't have to forward the x-access-token when the repos are swapped to public
+          git clone https://x-access-token:$GITHUB_TOKEN@github.com/${{ vars.SNAPSHOT_GITHUB_OWNER }}/${{ vars.SNAPSHOT_GITHUB_REPO }}.git snapshots_repo
           cd snapshots_repo
+
+          # Point to the snapshots directory from the previous step
+          snapshots_dir=../corpus_tests/snapshots
+          echo "$(ls $snapshots_dir)"
 
           # Configure Git
           git config --global user.name 'github-actions[bot]'
@@ -201,17 +201,39 @@ jobs:
           # Create new PR branch
           branch_name="update-snapshots-${{ github.ref_name }}"
           git checkout -b $branch_name
+          git branch --set-upstream-to=origin/$branch_name $branch_name
 
-          # TODO: use the new snapshots repository and commit the snapshot artifacts there
-          git add insta_snapshots/
+          # copy over the generated snapshots here
+          cp -r $snapshots_dir .
+          git add snapshots/
           git commit -m "Update decompilation snapshots"
-          git push origin $branch_name
+
+          # Push the changes with retry logic to handle conflicts
+          # NOTE: we are handling this all within github itself to avoid dumping large
+          #   amounts of data to actions artifacts that will balloon the free tier storage charges
+          retry=0
+          max_retries=5
+          while ! git push origin $branch_name; do
+            if [ $retry -eq $max_retries ]; then
+              echo "Failed to push after $max_retries attempts."
+              exit 1
+            fi
+            retry=$((retry + 1))
+            echo "Retrying push... ($retry/$max_retries)"
+            git pull --rebase
+          done
 
   create_pr:
     needs: [analyze_binaries]
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout snapshots repo
+        uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.CORPUS_ACCESS_TOKEN }}
+          repository: ${{ vars.SNAPSHOT_GITHUB_OWNER }}/${{ vars.SNAPSHOT_GITHUB_REPO }}
+
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v5
         with:
