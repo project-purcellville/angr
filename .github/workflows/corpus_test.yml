@@ -131,6 +131,7 @@ jobs:
           pip install git+https://github.com/angr/cle.git
           pip install git+https://github.com/angr/claripy.git
           pip install git+https://github.com/angr/ailment.git
+          pip install requests
         name: Install angr Dependencies
       - run: |
           source .venv/bin/activate
@@ -167,81 +168,174 @@ jobs:
             if [[ -n "$file" ]]; then
               echo "Processing binary: $file"
               # Create the directory to place the downloaded files
+              echo "run: mkdir -p binaries/$(dirname $file))"
               mkdir -p binaries/$(dirname $file)
-            
+
               # Fetch the binary file from the binaries repository
+              echo "run: curl"
               curl -s -H "Authorization: token $GITHUB_TOKEN" \
                 -o binaries/$file \
                   "https://raw.githubusercontent.com/${{ vars.CORPUS_GITHUB_OWNER }}/${{ vars.CORPUS_GITHUB_REPO }}/main/$file"
 
               echo "Downloaded file $(ls binaries/$file)"
-                
+
               # Run Angr Analysis on the binary file
               pytest --insta update-new --binary binaries/$file
             fi
           done
 
-      - name: Push snapshots to snapshot repo
-        env:
-          GITHUB_TOKEN: ${{ secrets.CORPUS_ACCESS_TOKEN }}
-        run: |
-          # Clone the snapshots repo
-          # NOTE: we shouldn't have to forward the x-access-token when the repos are swapped to public
-          git clone https://x-access-token:$GITHUB_TOKEN@github.com/${{ vars.SNAPSHOT_GITHUB_OWNER }}/${{ vars.SNAPSHOT_GITHUB_REPO }}.git snapshots_repo
-          cd snapshots_repo
+          # Insert newlines after literal '\n' in the JSON.
+          echo "ls -l snapshots/*.json"
+          ls -l snapshots/*.json
 
-          # Point to the snapshots directory from the previous step
-          snapshots_dir=../corpus_tests/snapshots
-          echo "$(ls $snapshots_dir)"
-
-          # Configure Git
-          git config --global user.name 'github-actions[bot]'
-          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-
-          # Create new PR branch
-          branch_name="update-snapshots-${{ github.ref_name }}"
-          git checkout -b $branch_name
-          git branch --set-upstream-to=origin/$branch_name $branch_name
-
-          # copy over the generated snapshots here
-          cp -r $snapshots_dir .
-          git add snapshots/
-          git commit -m "Update decompilation snapshots"
-
-          # Push the changes with retry logic to handle conflicts
-          # NOTE: we are handling this all within github itself to avoid dumping large
-          #   amounts of data to actions artifacts that will balloon the free tier storage charges
-          retry=0
-          max_retries=5
-          while ! git push origin $branch_name; do
-            if [ $retry -eq $max_retries ]; then
-              echo "Failed to push after $max_retries attempts."
+          for file in snapshots/*.json; do
+            echo "file: ${file}"
+            if [ ! -e "$file" ]; then
+              echo "Failed to find '$file'"
               exit 1
             fi
-            retry=$((retry + 1))
-            echo "Retrying push... ($retry/$max_retries)"
-            git pull --rebase
+            sed -e 's/\\n/\\n\n/g' -i "${file}"
+            mv "${file}" "${file}.txt"
           done
 
-  create_pr:
+      - name: Push snapshots to snapshot repo
+        env:
+          SHAPSHOT_TOKEN: ${{ secrets.SNAPSHOT_ACCESS_TOKEN }}
+        run: |
+          # Use all the virtual environment Python packages (requests).
+          source .venv/bin/activate
+
+          cd corpus_tests
+
+          angr_branch="${{ github.ref_name }}"
+          snapshot_base_branch=main
+          snapshot_branch="update-snapshots-${angr_branch}"
+          # snapshot_auth_token="$(gh auth token)"
+          snapshot_auth_token="${{ secrets.SNAPSHOT_ACCESS_TOKEN }}"
+          snapshot_owner="${{ vars.SNAPSHOT_GITHUB_OWNER }}"
+          snapshot_repo="${{ vars.SNAPSHOT_GITHUB_REPO }}"
+          snapshot_gh_user="github-actions[bot]"
+          snapshot_gh_email="${gh_user}@users.noreply.github.com"
+          ghapi=./ghapi.py
+          tries=3
+
+          # echo "auth-token: ==>|'$snapshot_auth_token'|<=="
+          n=0
+          while ! python3 $ghapi \
+              --auth-token "$snapshot_auth_token" \
+              --owner "$snapshot_owner" \
+              --repo "$snapshot_repo" \
+              --branch "${snapshot_base_branch}" \
+              create_branch "${snapshot_branch}" --allow-existing-branch; do
+            n=$[n+1]
+            if [ $n -ge $tries ]; then
+              break
+            fi
+            wait_time="$(printf '%u.%03u' $[RANDOM % 4] $[RANDOM % 1000])"
+            echo "Branch creation failed; waiting ${wait_time}s to try again."
+            sleep ${wait_time}
+          done
+
+          echo "ls -l snapshots/"
+          ls -l snapshots/
+          for file in snapshots/*.txt; do
+            # Second arg is the file path in the snapshots repo.
+            n=0
+            while ! python3 $ghapi \
+                --auth-token "$snapshot_auth_token" \
+                --owner "$snapshot_owner" \
+                --repo "$snapshot_repo" \
+                --branch "${snapshot_branch}" \
+                push_file "${file}" "${file}"; do
+              n=$[n+1]
+              if [ $n -ge $tries ]; then
+                break
+              fi
+              wait_time="$(printf '%u.%03u' $[RANDOM % 4] $[RANDOM % 1000])"
+              echo "Pushing file failed; waiting ${wait_time}s to try again."
+              sleep ${wait_time}
+            done
+          done
+
+  create_pr_custom:
     needs: [analyze_binaries]
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout snapshots repo
+      - name: Check out repo
         uses: actions/checkout@v3
-        with:
-          token: ${{ secrets.CORPUS_ACCESS_TOKEN }}
-          repository: ${{ vars.SNAPSHOT_GITHUB_OWNER }}/${{ vars.SNAPSHOT_GITHUB_REPO }}
 
-      - name: Create Pull Request
-        uses: peter-evans/create-pull-request@v5
+      - name: Setup Python and Install Testing Dependencies
+        uses: actions/setup-python@v5
+        id: setup_python
         with:
-          token: ${{ secrets.CORPUS_ACCESS_TOKEN }}
-          commit-message: "Update decompilation snapshots"
-          branch: update-snapshots-${{ github.ref_name }}
-          title: "Update decompilation snapshots"
-          body: "This PR updates the decompilation snapshots generated by the tool"
-          head-branch: update-snapshots-${{ github.ref_name }}
-          base: main
-          repository: ${{ vars.SNAPSHOT_GITHUB_OWNER }}/${{ vars.SNAPSHOT_GITHUB_REPO }}
+          python-version: "3.10"
+          cache: "pip"
+
+      - name: Restore venv Cache
+        uses: actions/cache/restore@v4
+        with:
+          key: venv-${{ runner.os }}-${{ steps.setup_python.outputs.python-version }}-${{ github.sha }}
+          path: .venv
+
+      - run: python -m venv .venv
+        name: Create venv
+        shell: bash
+
+      - name: Create pull request
+        run: |
+          source .venv/bin/activate
+          
+          cd corpus_tests
+
+          angr_branch="${{ github.ref_name }}"
+          snapshot_base_branch=main
+          snapshot_branch="update-snapshots-${angr_branch}"
+          snapshot_auth_token="${{ secrets.SNAPSHOT_ACCESS_TOKEN }}"
+          snapshot_owner="${{ vars.SNAPSHOT_GITHUB_OWNER }}"
+          snapshot_repo="${{ vars.SNAPSHOT_GITHUB_REPO }}"
+          snapshot_gh_user="github-actions[bot]"
+          snapshot_gh_email="github-actions[bot]@users.noreply.github.com"
+          ghapi=./ghapi.py
+          tries=3
+
+          n=0
+          while ! python3 $ghapi \
+              --auth-token "$snapshot_auth_token" \
+              --owner "$snapshot_owner" \
+              --repo "$snapshot_repo" \
+              --branch "${snapshot_base_branch}" \
+              create_pr "${snapshot_branch}" "Decompilation snapshots for diffing"; do
+            n=$[n+1]
+            if [ $n -ge $tries ]; then
+              break
+            fi
+            wait_time="$(printf '%u.%03u' $[RANDOM % 4] $[RANDOM % 1000])"
+            echo "Pull request creation failed; waiting ${wait_time}s to try again."
+            sleep ${wait_time}
+          done
+
+  # create_pr:
+  #   needs: [analyze_binaries]
+  #   runs-on: ubuntu-latest
+
+  #   steps:
+  #     - name: Check out repo
+  #       uses: actions/checkout@v3
+  #       with:
+  #         repository: ${{ vars.SNAPSHOT_GITHUB_OWNER }}/${{ vars.SNAPSHOT_GITHUB_REPO }}
+  #         token: ${{ secrets.SNAPSHOT_ACCESS_TOKEN }}
+  #         fetch-depth: 0
+  #         ref: main
+
+  #     - name: Create Pull Request
+  #       uses: peter-evans/create-pull-request@v5
+  #       with:
+  #         token: ${{ secrets.SNAPSHOT_ACCESS_TOKEN }}
+  #         commit-message: "Update decompilation snapshots for comparison"
+  #         branch: update-snapshots-${{ github.ref_name }}
+  #         title: "Update decompilation snapshots"
+  #         body: "This PR updates the decompilation snapshots generated by the tool"
+  #         head-branch: update-snapshots-${{ github.ref_name }}
+  #         base: main
+  #         repository: ${{ vars.SNAPSHOT_GITHUB_OWNER }}/${{ vars.SNAPSHOT_GITHUB_REPO }}
