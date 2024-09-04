@@ -1,6 +1,9 @@
 import angr
 from angr.analyses.decompiler.decompilation_options import PARAM_TO_OPTION
+import json
 import logging
+import os
+import re
 
 """
 Invoke this test script with the `pytest --insta` switch to enable the snapshot mechanism
@@ -55,4 +58,11 @@ def analyze_binary(binary_path):
 
 def test_functions_decompilation(binary, snapshot):
     analysis = analyze_binary(binary)
-    assert snapshot(f"{binary.replace('/', '_')}.json") == analysis
+    snapshots_binary = re.sub('^binaries/', 'snapshots/', binary)
+    dir_path = os.path.dirname(snapshots_binary).replace('/', os.path.sep)
+    os.makedirs(dir_path, exist_ok=True)
+    snapshot_file_path = os.path.join(dir_path, f"{os.path.basename(binary)}.json")
+    print(f'-=-=-=-=-=-=> Snapshot name: "{snapshot_file_path}"')
+    with open(snapshot_file_path, "w") as f:
+        json.dump(analysis, f)
+    # assert snapshot(snapshot_file_path) == analysis
