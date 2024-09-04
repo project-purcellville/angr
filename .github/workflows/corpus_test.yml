@@ -163,7 +163,6 @@ jobs:
           # Set the context to the corpus_test folder for running pytest
           cd corpus_tests
 
-          # TODO: figure out where to pull in the old snapshots for each binary for comparison
           for file in "${files_array[@]}"; do
             if [[ -n "$file" ]]; then
               echo "Processing binary: $file"
@@ -185,18 +184,23 @@ jobs:
           done
 
           # Insert newlines after literal '\n' in the JSON.
-          echo "ls -l snapshots/*.json"
-          ls -l snapshots/*.json
+          echo "ls -l dollar(find snapshots/ -type f -name '*.json')"
+          ls -l $(find snapshots/ -type f -name '*.json')
 
-          for file in snapshots/*.json; do
+          for file in $(find snapshots/ -type f -iname '*.json'); do
             echo "file: ${file}"
             if [ ! -e "$file" ]; then
-              echo "Failed to find '$file'"
-              exit 1
+              echo "*** Failed to find '$file'"
+              # exit 1
+              continue
             fi
             sed -e 's/\\n/\\n\n/g' -i "${file}"
             mv "${file}" "${file}.txt"
           done
+
+          echo "================================================================"
+          find binaries snapshots -type f
+          echo "----------------------------------------------------------------"
 
       - name: Push snapshots to snapshot repo
         env:
@@ -236,9 +240,9 @@ jobs:
             sleep ${wait_time}
           done
 
-          echo "ls -l snapshots/"
-          ls -l snapshots/
-          for file in snapshots/*.txt; do
+          echo "ls -l dollar(find snapshots/ -type f -name '*.json.txt')"
+          ls -l $(find snapshots/ -type f -name '*.json.txt')
+          for file in $(find snapshots/ -type f -name '*.json.txt'); do
             # Second arg is the file path in the snapshots repo.
             n=0
             while ! python3 $ghapi \
