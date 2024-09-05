@@ -22,7 +22,7 @@ jobs:
       - name: Fetch binaries metadata
         id: fetch_binaries
         env:
-          GITHUB_TOKEN: ${{ secrets.CORPUS_ACCESS_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           apt update >/dev/null 2>&1
           apt install -y curl jq >/dev/null 2>&1
@@ -150,7 +150,7 @@ jobs:
 
       - name: Fetch binary files and run analysis
         env:
-          GITHUB_TOKEN: ${{ secrets.CORPUS_ACCESS_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           source .venv/bin/activate
 
@@ -204,7 +204,7 @@ jobs:
 
       - name: Push snapshots to snapshot repo
         env:
-          SHAPSHOT_TOKEN: ${{ secrets.SNAPSHOT_ACCESS_TOKEN }}
+          SHAPSHOT_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Use all the virtual environment Python packages (requests).
           source .venv/bin/activate
@@ -215,7 +215,7 @@ jobs:
           snapshot_base_branch=main
           snapshot_branch="update-snapshots-${angr_branch}"
           # snapshot_auth_token="$(gh auth token)"
-          snapshot_auth_token="${{ secrets.SNAPSHOT_ACCESS_TOKEN }}"
+          snapshot_auth_token="$SNAPSHOT_TOKEN"
           snapshot_owner="${{ vars.SNAPSHOT_GITHUB_OWNER }}"
           snapshot_repo="${{ vars.SNAPSHOT_GITHUB_REPO }}"
           snapshot_gh_user="github-actions[bot]"
@@ -287,15 +287,17 @@ jobs:
         shell: bash
 
       - name: Create pull request
+        env:
+          SHAPSHOT_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           source .venv/bin/activate
-          
+
           cd corpus_tests
 
           angr_branch="${{ github.ref_name }}"
           snapshot_base_branch=main
           snapshot_branch="update-snapshots-${angr_branch}"
-          snapshot_auth_token="${{ secrets.SNAPSHOT_ACCESS_TOKEN }}"
+          snapshot_auth_token="$SNAPSHOT_TOKEN"
           snapshot_owner="${{ vars.SNAPSHOT_GITHUB_OWNER }}"
           snapshot_repo="${{ vars.SNAPSHOT_GITHUB_REPO }}"
           snapshot_gh_user="github-actions[bot]"
