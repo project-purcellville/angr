@@ -204,7 +204,7 @@ jobs:
 
       - name: Push snapshots to snapshot repo
         env:
-          SHAPSHOT_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SNAPSHOT_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Use all the virtual environment Python packages (requests).
           source .venv/bin/activate
@@ -288,7 +288,7 @@ jobs:
 
       - name: Create pull request
         env:
-          SHAPSHOT_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SNAPSHOT_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           source .venv/bin/activate
 
