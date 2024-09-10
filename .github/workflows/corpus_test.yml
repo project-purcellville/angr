@@ -21,8 +21,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "Applying 'apt' changes."
-          apt update
-          apt install -y curl jq
+          sudo apt update
+          sudo apt install -y curl jq
 
           # Fetch the list of binaries from the binaries repository using the GitHub API
           fetch_files_from_tree() {
