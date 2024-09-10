@@ -246,7 +246,8 @@ jobs:
             fi
           done
 
-          if [[ "$NIGHTLY" == "1" -a $changed_snapshots -gt 0 ]]; then
+          if [ "$NIGHTLY" == "1" ] && [ $changed_snapshots -gt 0 ]; then
+            echo "Failing nightly build due to snapshot diffs."
             exit 1
           fi
 
