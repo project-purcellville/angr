@@ -1,3 +1,4 @@
+from __future__ import annotations
 from typing import Any
 from itertools import count
 import copy
@@ -49,7 +50,7 @@ class ReturnDuplicatorBase:
     #
 
     def _should_duplicate_dst(self, src, dst, graph, dst_is_const_ret=False) -> bool:
-        raise NotImplementedError()
+        raise NotImplementedError
 
     #
     # main analysis
@@ -388,7 +389,7 @@ class ReturnDuplicatorBase:
         return region, region_head
 
     @staticmethod
-    def _is_indirect_jump_ailblock(block: "Block") -> bool:
+    def _is_indirect_jump_ailblock(block: Block) -> bool:
         if block.statements and isinstance(block.statements[-1], Jump):
             last_stmt = block.statements[-1]
             if not isinstance(last_stmt.target, Const):
@@ -416,9 +417,9 @@ class ReturnDuplicatorBase:
         def _unpack_block_type_to_addrs(node):
             if isinstance(node, Block):
                 return {node.addr}
-            elif isinstance(node, MultiNode):
+            if isinstance(node, MultiNode):
                 return {n.addr for n in node.nodes}
-            elif isinstance(node, ConditionNode):
+            if isinstance(node, ConditionNode):
                 return _unpack_block_type_to_addrs(node.true_node) | _unpack_block_type_to_addrs(node.false_node)
             return set()
 

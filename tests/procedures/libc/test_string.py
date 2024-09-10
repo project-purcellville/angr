@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 # pylint: disable=missing-class-docstring,no-self-use,line-too-long
+from __future__ import annotations
+
 __package__ = __package__ or "tests.procedures.libc"  # pylint:disable=redefined-builtin
 
 import logging
@@ -344,7 +346,7 @@ class TestStringSimProcedures(unittest.TestCase):
 
         ss_res = strstr(s, arguments=[addr_haystack, addr_needle])
         results = set(s.solver.eval_upto(ss_res, len(haystack) * 2))
-        expected = {(claripy.backends.concrete.convert(addr_haystack).value + i) for i in range(len(haystack))} | {0}
+        expected = {(addr_haystack.concrete_value + i) for i in range(len(haystack))} | {0}
         assert results == expected
 
         s_match = s.copy()
@@ -383,8 +385,8 @@ class TestStringSimProcedures(unittest.TestCase):
         num_possible = min(s.libc.max_symbolic_strstr, 1 + (len(str_haystack) - len(str_needle)) // 8)
         expected = set(
             range(
-                claripy.backends.concrete.convert(addr_haystack).value,
-                claripy.backends.concrete.convert(addr_haystack).value + num_possible,
+                addr_haystack.concrete_value,
+                addr_haystack.concrete_value + num_possible,
             )
         )
         results = set(s_match.solver.eval_exact(ss_res, num_possible))
@@ -455,7 +457,7 @@ class TestStringSimProcedures(unittest.TestCase):
         # print "LENN:", s.solver.eval_upto(sln_res, 100)
 
         assert not s.solver.unique(ss_res)
-        assert sorted(s.solver.eval_upto(ss_res, 100)) == [0] + list(range(0x10, 0x10 + s.libc.buf_symbolic_bytes - 1))
+        assert sorted(s.solver.eval_upto(ss_res, 100)) == [0, *list(range(16, 16 + s.libc.buf_symbolic_bytes - 1))]
 
         s.add_constraints(ss_res != 0)
         ss2 = strstr(s, arguments=[addr_haystack, addr_needle])

@@ -1,3 +1,4 @@
+from __future__ import annotations
 import functools
 import time
 import logging
@@ -5,7 +6,6 @@ import os
 from typing import TypeVar, overload
 
 import claripy
-from claripy import backend_manager
 
 from angr import sim_options as o
 from angr.errors import SimValueError, SimUnsatError, SimSolverModeError, SimSolverOptionError
@@ -45,10 +45,10 @@ def timed_function(f):
                     location = "bbl {:#x}, stmt {} (inst {})".format(
                         s.scratch.bbl_addr,
                         s.scratch.stmt_idx,
-                        ("%s" % s.scratch.ins_addr if s.scratch.ins_addr is None else "%#x" % s.scratch.ins_addr),
+                        (f"{s.scratch.ins_addr}" if s.scratch.ins_addr is None else f"{s.scratch.ins_addr:#x}"),
                     )
                 elif s.scratch.sim_procedure is not None:
-                    location = "sim_procedure %s" % s.scratch.sim_procedure
+                    location = f"sim_procedure {s.scratch.sim_procedure}"
                 else:
                     location = "unknown"
             except Exception:  # pylint:disable=broad-except
@@ -61,8 +61,7 @@ def timed_function(f):
             return r
 
         return timing_guy
-    else:
-        return f
+    return f
 
 
 # pylint:disable=global-variable-undefined
@@ -110,24 +109,23 @@ def error_converter(f):
 def _concrete_bool(e):
     if isinstance(e, bool):
         return e
-    elif isinstance(e, claripy.ast.Base) and e.op == "BoolV":
+    if isinstance(e, claripy.ast.Base) and e.op == "BoolV" or isinstance(e, SimActionObject) and e.op == "BoolV":
         return e.args[0]
-    elif isinstance(e, SimActionObject) and e.op == "BoolV":
-        return e.args[0]
-    else:
-        return None
+    return None
 
 
 def _concrete_value(e):
     # shortcuts for speed improvement
     if isinstance(e, (int, float, bool)):
         return e
-    elif isinstance(e, claripy.ast.Base) and e.op in claripy.operations.leaf_operations_concrete:
+    if (
+        isinstance(e, claripy.ast.Base)
+        and e.op in claripy.operations.leaf_operations_concrete
+        or isinstance(e, SimActionObject)
+        and e.op in claripy.operations.leaf_operations_concrete
+    ):
         return e.args[0]
-    elif isinstance(e, SimActionObject) and e.op in claripy.operations.leaf_operations_concrete:
-        return e.args[0]
-    else:
-        return None
+    return None
 
 
 def concrete_path_bool(f):
@@ -136,8 +134,7 @@ def concrete_path_bool(f):
         v = _concrete_bool(args[0])
         if v is None:
             return f(self, *args, **kwargs)
-        else:
-            return v
+        return v
 
     return concrete_shortcut_bool
 
@@ -148,8 +145,7 @@ def concrete_path_not_bool(f):
         v = _concrete_bool(args[0])
         if v is None:
             return f(self, *args, **kwargs)
-        else:
-            return not v
+        return not v
 
     return concrete_shortcut_not_bool
 
@@ -160,8 +156,7 @@ def concrete_path_scalar(f):
         v = _concrete_value(args[0])
         if v is None:
             return f(self, *args, **kwargs)
-        else:
-            return v
+        return v
 
     return concrete_shortcut_scalar
 
@@ -172,8 +167,7 @@ def concrete_path_tuple(f):
         v = _concrete_value(args[0])
         if v is None:
             return f(self, *args, **kwargs)
-        else:
-            return (v,)
+        return (v,)
 
     return concrete_shortcut_tuple
 
@@ -184,8 +178,7 @@ def concrete_path_list(f):
         v = _concrete_value(args[0])
         if v is None:
             return f(self, *args, **kwargs)
-        else:
-            return [v]
+        return [v]
 
     return concrete_shortcut_list
 
@@ -270,10 +263,10 @@ class SimSolver(SimStatePlugin):
             self.eternal_tracked_variables[key] = v
         else:
             self.temporal_tracked_variables = dict(self.temporal_tracked_variables)
-            ctrkey = key + (None,)
+            ctrkey = (*key, None)
             ctrval = self.temporal_tracked_variables.get(ctrkey, 0) + 1
             self.temporal_tracked_variables[ctrkey] = ctrval
-            tempkey = key + (ctrval,)
+            tempkey = (*key, ctrval)
             self.temporal_tracked_variables[tempkey] = v
 
     def describe_variables(self, v):
@@ -302,14 +295,7 @@ class SimSolver(SimStatePlugin):
         track = o.CONSTRAINT_TRACKING_IN_SOLVER in self.state.options
         approximate_first = o.APPROXIMATE_FIRST in self.state.options
 
-        if o.STRINGS_ANALYSIS in self.state.options:
-            if o.COMPOSITE_SOLVER in self.state.options:
-                self._stored_solver = claripy.SolverComposite(
-                    template_solver_string=claripy.SolverCompositeChild(
-                        backend=backend_manager.backends.z3, track=track
-                    )
-                )
-        elif o.ABSTRACT_SOLVER in self.state.options:
+        if o.ABSTRACT_SOLVER in self.state.options:
             self._stored_solver = claripy.SolverVSA()
         elif o.SYMBOLIC in self.state.options and o.REPLACEMENT_SOLVER in self.state.options:
             self._stored_solver = claripy.SolverReplacement(auto_replace=False)
@@ -317,9 +303,11 @@ class SimSolver(SimStatePlugin):
             self._stored_solver = claripy.SolverCacheless(track=track)
         elif o.SYMBOLIC in self.state.options and o.COMPOSITE_SOLVER in self.state.options:
             self._stored_solver = claripy.SolverComposite(track=track)
-        elif o.SYMBOLIC in self.state.options and any(opt in self.state.options for opt in o.approximation):
-            self._stored_solver = claripy.SolverHybrid(track=track, approximate_first=approximate_first)
-        elif o.HYBRID_SOLVER in self.state.options:
+        elif (
+            o.SYMBOLIC in self.state.options
+            and any(opt in self.state.options for opt in o.approximation)
+            or o.HYBRID_SOLVER in self.state.options
+        ):
             self._stored_solver = claripy.SolverHybrid(track=track, approximate_first=approximate_first)
         elif o.SYMBOLIC in self.state.options:
             self._stored_solver = claripy.Solver(track=track)
@@ -332,7 +320,16 @@ class SimSolver(SimStatePlugin):
     # Get unconstrained stuff
     #
     def Unconstrained(
-        self, name, bits, uninitialized=True, inspect=True, events=True, key=None, eternal=False, **kwargs
+        self,
+        name,
+        bits,
+        uninitialized=True,
+        inspect=True,
+        events=True,
+        key=None,
+        eternal=False,
+        uc_alloc_depth=None,
+        **kwargs,
     ):
         """
         Creates an unconstrained symbol or a default concrete value (0), based on the state options.
@@ -345,7 +342,7 @@ class SimSolver(SimStatePlugin):
         :param events:          Set to False to avoid generating a SimEvent for the occasion
         :param key:             Set this to a tuple of increasingly specific identifiers (for example,
                                 ``('mem', 0xffbeff00)`` or ``('file', 4, 0x20)`` to cause it to be tracked, i.e.
-                                accessable through ``solver.get_variables``.
+                                accessible through ``solver.get_variables``.
         :param eternal:         Set to True in conjunction with setting a key to cause all states with the same
                                 ancestry to retrieve the same symbol when trying to create the value. If False, a
                                 counter will be appended to the key.
@@ -359,33 +356,22 @@ class SimSolver(SimStatePlugin):
                 r = claripy.TSI(bits=bits, name=name, uninitialized=uninitialized, **kwargs)
             else:
                 l.debug("Creating new unconstrained BV named %s", name)
-                if o.UNDER_CONSTRAINED_SYMEXEC in self.state.options:
-                    r = self.BVS(
-                        name,
-                        bits,
-                        uninitialized=uninitialized,
-                        key=key,
-                        eternal=eternal,
-                        inspect=inspect,
-                        events=events,
-                        **kwargs,
-                    )
-                else:
-                    r = self.BVS(
-                        name,
-                        bits,
-                        uninitialized=uninitialized,
-                        key=key,
-                        eternal=eternal,
-                        inspect=inspect,
-                        events=events,
-                        **kwargs,
-                    )
+                r = self.BVS(
+                    name,
+                    bits,
+                    uninitialized=uninitialized,
+                    key=key,
+                    eternal=eternal,
+                    inspect=inspect,
+                    events=events,
+                    **kwargs,
+                )
+                if uc_alloc_depth is not None:
+                    self.state.uc_manager.set_alloc_depth(r, uc_alloc_depth)
 
             return r
-        else:
-            # Return a default value, aka. 0
-            return claripy.BVV(0, bits)
+        # Return a default value, aka. 0
+        return claripy.BVV(0, bits)
 
     def BVS(
         self,
@@ -416,7 +402,7 @@ class SimSolver(SimStatePlugin):
         :param explicit_name:   Set to True to prevent an identifier from appended to the name to ensure uniqueness.
         :param key:             Set this to a tuple of increasingly specific identifiers (for example,
                                 ``('mem', 0xffbeff00)`` or ``('file', 4, 0x20)`` to cause it to be tracked, i.e.
-                                accessable through ``solver.get_variables``.
+                                accessible through ``solver.get_variables``.
         :param eternal:         Set to True in conjunction with setting a key to cause all states with the same
                                 ancestry to retrieve the same symbol when trying to create the value. If False, a
                                 counter will be appended to the key.
@@ -438,7 +424,7 @@ class SimSolver(SimStatePlugin):
                 or uninitialized != r.args[4]
                 or bool(explicit_name) ^ (r.args[0] == name)
             ):
-                l.warning("Variable %s being retrieved with differnt settings than it was tracked with", name)
+                l.warning("Variable %s being retrieved with different settings than it was tracked with", name)
         else:
             r = claripy.BVS(
                 name,
@@ -496,8 +482,7 @@ class SimSolver(SimStatePlugin):
     def widen(self, others):
         c = claripy.BVS("random_widen_condition", 32)
         merge_conditions = [[c == i] for i in range(len(others) + 1)]
-        merging_occurred = self.merge(others, merge_conditions)
-        return merging_occurred
+        return self.merge(others, merge_conditions)
 
     #
     # Frontend passthroughs
@@ -520,19 +505,17 @@ class SimSolver(SimStatePlugin):
     def _adjust_constraint(self, c):
         if self.state._global_condition is None:
             return c
-        elif c is None:  # this should never happen
+        if c is None:  # this should never happen
             l.critical("PLEASE REPORT THIS MESSAGE, AND WHAT YOU WERE DOING, TO YAN")
             return self.state._global_condition
-        else:
-            return claripy.Or(claripy.Not(self.state._global_condition), c)
+        return claripy.Or(claripy.Not(self.state._global_condition), c)
 
     def _adjust_constraint_list(self, constraints):
         if self.state._global_condition is None:
             return constraints
         if len(constraints) == 0:
             return constraints.__class__((self.state._global_condition,))
-        else:
-            return constraints.__class__((self._adjust_constraint(claripy.And(*constraints)),))
+        return constraints.__class__((self._adjust_constraint(claripy.And(*constraints)),))
 
     @timed_function
     @ast_stripping_decorator
@@ -767,7 +750,7 @@ class SimSolver(SimStatePlugin):
         if type(solution) is bool:
             if cast_to is bytes:
                 return bytes([int(solution)])
-            elif cast_to is int:
+            if cast_to is int:
                 return int(solution)
         elif type(solution) is float:
             solution = _concrete_value(claripy.FPV(solution, claripy.fp.FSort.from_size(len(e))).raw_to_bv())
@@ -1034,10 +1017,9 @@ class SimSolver(SimStatePlugin):
         if len(r) == 1:
             self.add(e == r[0])
             return True
-        elif len(r) == 0:
+        if len(r) == 0:
             raise SimValueError("unsatness during uniqueness check(ness)")
-        else:
-            return False
+        return False
 
     def symbolic(self, e):  # pylint:disable=R0201
         """
@@ -1056,12 +1038,10 @@ class SimSolver(SimStatePlugin):
         if self.state.mode == "static":
             if type(e) in (int, bytes, float, bool):
                 return True
-            else:
-                return e.cardinality <= 1
+            return e.cardinality <= 1
 
-        else:
-            # All symbolic expressions are not single-valued
-            return not self.symbolic(e)
+        # All symbolic expressions are not single-valued
+        return not self.symbolic(e)
 
     def simplify(self, e=None):
         """
@@ -1070,16 +1050,17 @@ class SimSolver(SimStatePlugin):
         """
         if e is None:
             return self._solver.simplify()
-        elif isinstance(e, (int, float, bool)):
+        if (
+            isinstance(e, (int, float, bool))
+            or isinstance(e, claripy.ast.Base)
+            and e.op in claripy.operations.leaf_operations_concrete
+        ):
             return e
-        elif isinstance(e, claripy.ast.Base) and e.op in claripy.operations.leaf_operations_concrete:
-            return e
-        elif isinstance(e, SimActionObject) and e.op in claripy.operations.leaf_operations_concrete:
+        if isinstance(e, SimActionObject) and e.op in claripy.operations.leaf_operations_concrete:
             return e.ast
-        elif not isinstance(e, (SimActionObject, claripy.ast.Base)):
+        if not isinstance(e, (SimActionObject, claripy.ast.Base)):
             return e
-        else:
-            return self._claripy_simplify(e)
+        return self._claripy_simplify(e)
 
     @timed_function
     @ast_stripping_decorator

@@ -1,3 +1,4 @@
+from __future__ import annotations
 import copy
 import functools
 import logging
@@ -80,17 +81,21 @@ class SimEngineUnicorn(SuccessorsMixin):
         # should the countdown still be updated if we're not stepping a whole block?
         # current decision: leave it updated, since we are moving forward
         if num_inst is not None:
-            # we don't support single stepping with unicorn
+            if once("unicorn_num_inst_warning"):
+                l.warning("unicorn engine doesn't support stepping with num_inst")
             return False
 
         unicorn = state.unicorn  # shorthand
 
         # if we have a concrete target we want the program to synchronize the segment
         # registers before, otherwise undefined behavior could happen.
-        if state.project.concrete_target and self.project.arch.name in ("x86", "x86_64"):
-            if not state.concrete.segment_registers_initialized:
-                l.debug("segment register must be synchronized with the concrete target before using unicorn engine")
-                return False
+        if (
+            state.project.concrete_target
+            and self.project.arch.name in ("x86", "x86_64")
+            and not state.concrete.segment_registers_initialized
+        ):
+            l.debug("segment register must be synchronized with the concrete target before using unicorn engine")
+            return False
         if state.regs.ip.symbolic:
             l.debug("symbolic IP!")
             return False
@@ -420,8 +425,8 @@ class SimEngineUnicorn(SuccessorsMixin):
 
         # initialize unicorn plugin
         try:
-            syscall_data = kwargs["syscall_data"] if "syscall_data" in kwargs else None
-            fd_bytes = kwargs["fd_bytes"] if "fd_bytes" in kwargs else None
+            syscall_data = kwargs.get("syscall_data", None)
+            fd_bytes = kwargs.get("fd_bytes", None)
             state.unicorn.setup(syscall_data=syscall_data, fd_bytes=fd_bytes)
         except SimValueError:
             # it's trying to set a symbolic register somehow

@@ -1,3 +1,4 @@
+from __future__ import annotations
 from typing import Any
 
 import networkx
@@ -15,7 +16,7 @@ class SAILRStructurer(PhoenixStructurer):
 
     At a high-level, SAILR does three things different from the traditional Phoenix schema-based algorithm:
     1. It recursively structures the graph, rather than doing it in a single pass. This allows decisions to be made
-        based on the currrent state of what the decompilation would look like.
+        based on the current state of what the decompilation would look like.
     2. It performs deoptimizations targeting specific optimizations that introduces gotos and mis-structured code.
         It can only do this because of the recursive nature of the algorithm.
     3. It uses a more advanced heuristic for virtualizing edges, which is implemented in this class.
@@ -41,8 +42,8 @@ class SAILRStructurer(PhoenixStructurer):
 
         # TODO: the graph we have here is not an accurate graph and can have no "entry node". We need a better graph.
         try:
-            entry_node = [node for node in graph.nodes if graph.in_degree(node) == 0][0]
-        except IndexError:
+            entry_node = next(node for node in graph.nodes if graph.in_degree(node) == 0)
+        except StopIteration:
             entry_node = None
 
         best_edges = edges
@@ -104,7 +105,7 @@ class SAILRStructurer(PhoenixStructurer):
 
                 if len(best_edges) == 1:
                     return best_edges
-                elif not best_edges:
+                if not best_edges:
                     best_edges = candidate_edges
 
         # if we have another tie, or we never used improved heuristics, then we do the default ordering.

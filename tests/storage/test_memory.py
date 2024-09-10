@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # pylint: disable=missing-class-docstring,no-self-use,line-too-long
+from __future__ import annotations
 
 import time
 import unittest
@@ -346,7 +347,7 @@ class TestMemory(unittest.TestCase):
 
         # Load the two-byte StridedInterval object from global region
         expr = s.memory.load(to_vs("global", 5), 2)
-        assert claripy.backends.vsa.identical(expr, si_1)
+        assert expr.identical(si_1)
 
         # Store a four-byte StridedInterval object to global region
         si_2 = claripy.BVS("unnamed", 32, 8000, 9000, 2)
@@ -354,18 +355,18 @@ class TestMemory(unittest.TestCase):
 
         # Load the four-byte StridedInterval object from global region
         expr = s.memory.load(to_vs("global", 7), 4)
-        assert claripy.backends.vsa.identical(expr, claripy.BVS("unnamed", 32, 8000, 9000, 2))
+        assert expr.identical(claripy.BVS("unnamed", 32, 8000, 9000, 2))
 
         # Test default values
         s.options.remove(o.SYMBOLIC_INITIAL_VALUES)
         expr = s.memory.load(to_vs("global", 100), 4)
-        assert claripy.backends.vsa.identical(expr, claripy.BVS("unnamed", 32, 0, 0, 0))
+        assert expr.identical(claripy.BVS("unnamed", 32, 0, 0, 0))
 
         # Test default values (symbolic)
         s.options.add(o.SYMBOLIC_INITIAL_VALUES)
         expr = s.memory.load(to_vs("global", 104), 4)
-        assert claripy.backends.vsa.identical(expr, claripy.BVS("unnamed", 32, 0, 0xFFFFFFFF, 1))
-        assert claripy.backends.vsa.identical(expr, claripy.BVS("unnamed", 32, -0x80000000, 0x7FFFFFFF, 1))
+        assert expr.identical(claripy.BVS("unnamed", 32, 0, 0xFFFFFFFF, 1))
+        assert expr.identical(claripy.BVS("unnamed", 32, -0x80000000, 0x7FFFFFFF, 1))
 
         #
         # Merging
@@ -378,7 +379,7 @@ class TestMemory(unittest.TestCase):
 
         b = s.merge(a)[0]
         expr = b.memory.load(to_vs("function_merge", 0), 1)
-        assert claripy.backends.vsa.identical(expr, claripy.BVS("unnamed", 8, 0x10, 0x20, 0x10))
+        assert expr.identical(claripy.BVS("unnamed", 8, 0x10, 0x20, 0x10))
 
         #  |  MO(value_0)  |
         #  |  MO(value_1)  |
@@ -394,9 +395,7 @@ class TestMemory(unittest.TestCase):
         )
         c = a.merge(b)[0]
         expr = c.memory.load(to_vs("function_merge", 0x20), 4)
-        assert claripy.backends.vsa.identical(
-            expr, claripy.SI(bits=32, stride=1, lower_bound=0x100000, upper_bound=0x100001)
-        )
+        assert expr.identical(claripy.SI(bits=32, stride=1, lower_bound=0x100000, upper_bound=0x100001))
         c_page = c.memory._regions["function_merge"]._pages[0]
         object_set = {
             c_page._get_object(0x20, 0),
@@ -417,9 +416,7 @@ class TestMemory(unittest.TestCase):
         )
         c = a.merge(b)[0]
         expr = c.memory.load(to_vs("function_merge", 0x20), 4)
-        assert claripy.backends.vsa.identical(
-            expr, claripy.SI(bits=32, stride=0x100000, lower_bound=0x100000, upper_bound=0x300000)
-        )
+        assert expr.identical(claripy.SI(bits=32, stride=0x100000, lower_bound=0x100000, upper_bound=0x300000))
         object_set = {
             c_page._get_object(0x20, 0),
             c_page._get_object(0x21, 0),
@@ -456,38 +453,20 @@ class TestMemory(unittest.TestCase):
 
         s.memory.store(4, claripy.TSI(bits=64))
 
-        def to_vs(region, offset):
-            return claripy.VS(s.arch.bits, region, 0, offset)
+        test_cases = [
+            (1, claripy.BVV(b"A"), claripy.SI(bits=64, to_conv=1)),
+            (1, claripy.BVV(b"B"), claripy.SI(bits=64, to_conv=2)),
+            (1, claripy.BVV(b"\0"), claripy.SI(bits=64, to_conv=3)),
+            (4, claripy.BVV("\0"), claripy.SI(bits=64, stride=1, lower_bound=4, upper_bound=11)),
+        ]
 
-        r, _, _ = s.memory.find(to_vs("global", 1), claripy.BVV(b"A"), 8)
-
-        r_model = claripy.backends.vsa.convert(r)
-        s_expected = claripy.backends.vsa.convert(claripy.SI(bits=64, to_conv=1))
-        assert isinstance(r_model, claripy.vsa.ValueSet)
-        assert list(r_model.regions.keys()) == ["global"]
-        assert claripy.backends.vsa.identical(r_model.regions["global"], s_expected)
-
-        r, _, _ = s.memory.find(to_vs("global", 1), claripy.BVV(b"B"), 8)
-        r_model = claripy.backends.vsa.convert(r)
-        s_expected = claripy.backends.vsa.convert(claripy.SI(bits=64, to_conv=2))
-        assert isinstance(r_model, claripy.vsa.ValueSet)
-        assert list(r_model.regions.keys()) == ["global"]
-        assert claripy.backends.vsa.identical(r_model.regions["global"], s_expected)
-
-        r, _, _ = s.memory.find(to_vs("global", 1), claripy.BVV(b"\0"), 8)
-        r_model = claripy.backends.vsa.convert(r)
-        s_expected = claripy.backends.vsa.convert(claripy.SI(bits=64, to_conv=3))
-        assert isinstance(r_model, claripy.vsa.ValueSet)
-        assert list(r_model.regions.keys()) == ["global"]
-        assert claripy.backends.vsa.identical(r_model.regions["global"], s_expected)
-
-        # Find in StridedIntervals
-        r, _, _ = s.memory.find(to_vs("global", 4), claripy.BVV(b"\0"), 8)
-        r_model = claripy.backends.vsa.convert(r)
-        s_expected = claripy.backends.vsa.convert(claripy.SI(bits=64, stride=1, lower_bound=4, upper_bound=11))
-        assert isinstance(r_model, claripy.vsa.ValueSet)
-        assert list(r_model.regions.keys()) == ["global"]
-        assert claripy.backends.vsa.identical(r_model.regions["global"], s_expected)
+        for offset, what, expected in test_cases:
+            r, _, _ = s.memory.find(claripy.VS(s.arch.bits, "global", 0, offset), what, 8)
+            assert r.has_annotation_type(claripy.annotation.RegionAnnotation)
+            r_annotations = r.get_annotations_by_type(claripy.annotation.RegionAnnotation)
+            assert len(r_annotations) == 1
+            assert r_annotations[0].region_id == "global"
+            assert r.clear_annotations().identical(expected)
 
     def test_registers(self):
         s = SimState(arch="AMD64")
@@ -779,7 +758,7 @@ class TestMemory(unittest.TestCase):
 
         # test that under-constrained load is constrained
         ptr1 = state.memory.load(0x4141414141414000, size=8, endness="Iend_LE")
-        assert ptr1.uc_alloc_depth == 0
+        assert state.uc_manager.get_alloc_depth(ptr1) == 0
         assert ptr1.uninitialized
         state.memory.load(ptr1, size=1)
         # ptr1 should have been constrained
@@ -787,7 +766,7 @@ class TestMemory(unittest.TestCase):
 
         # test that under-constrained store is constrained
         ptr2 = state.memory.load(0x4141414141414008, size=8, endness="Iend_LE")
-        assert ptr2.uc_alloc_depth == 0
+        assert state.uc_manager.get_alloc_depth(ptr2) == 0
         assert ptr2.uninitialized
         state.memory.store(ptr2, b"\x41", size=1)
         # ptr2 should have been constrained
@@ -802,7 +781,7 @@ class TestMemory(unittest.TestCase):
             state.memory.load(0x4141414141414014, size=4, endness="Iend_LE"),
         )
         assert ptr3.uninitialized
-        assert ptr3.uc_alloc_depth is None  # because uc_alloc_depth doesn't carry across Concat
+        assert state.uc_manager.get_alloc_depth(ptr3) is None  # because uc_alloc_depth doesn't carry across Concat
         # we don't care what these do, as long as they don't crash
         state.memory.store(ptr3, b"\x41", size=1)
         state.memory.load(ptr3, size=1)
@@ -930,8 +909,8 @@ class TestMemory(unittest.TestCase):
         a = state.memory.load(0x120, size=8)
         assert len(a.keys()) == 1
         assert 0 in a
-        assert len(list(a.values())[0]) == 2
-        assert {state.solver.eval_exact(item, 1)[0] for item in list(a.values())[0]} == {0x40, 0x85868788}
+        assert len(next(iter(a.values()))) == 2
+        assert {state.solver.eval_exact(item, 1)[0] for item in next(iter(a.values()))} == {0x40, 0x85868788}
 
         # weak updates with symbolic values
         A = claripy.BVS("a", 64)
@@ -941,7 +920,7 @@ class TestMemory(unittest.TestCase):
         assert len(a.keys()) == 2
         assert 0 in a
         assert 1 in a
-        assert len(list(a.values())[0]) == 1
+        assert len(next(iter(a.values()))) == 1
         assert next(iter(a[0])) is A[7:0]
         assert len(a[1]) == 2
 

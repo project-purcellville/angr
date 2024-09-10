@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
 __package__ = __package__ or "tests.sim"  # pylint:disable=redefined-builtin
 
 import pickle
@@ -133,8 +135,8 @@ class TestState(unittest.TestCase):
         c.memory.store(addr, claripy.BVV(70, 32), endness="Iend_LE")
 
         merged, _, _ = a.merge(b, c)
-        actual = claripy.backends.vsa.convert(merged.memory.load(addr, 4, endness="Iend_LE"))
-        expected = claripy.backends.vsa.convert(claripy.SI(bits=32, stride=10, lower_bound=50, upper_bound=70))
+        actual = merged.memory.load(addr, 4, endness="Iend_LE")
+        expected = claripy.SI(bits=32, stride=10, lower_bound=50, upper_bound=70)
         assert actual.identical(expected)
 
     def test_state_merge_3way(self):
