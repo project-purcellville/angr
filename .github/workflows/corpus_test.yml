@@ -20,8 +20,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          apt update >/dev/null 2>&1
-          apt install -y curl jq >/dev/null 2>&1
+          echo "Applying 'apt' changes."
+          apt update
+          apt install -y curl jq
 
           # Fetch the list of binaries from the binaries repository using the GitHub API
           fetch_files_from_tree() {
@@ -169,6 +170,7 @@ jobs:
           SNAPSHOT_BRANCH: ${{ vars.SNAPSHOT_GITHUB_BRANCH }}
           SNAPSHOT_OWNER: ${{ vars.SNAPSHOT_GITHUB_OWNER }}
           SNAPSHOT_REPO: ${{ vars.SNAPSHOT_GITHUB_REPO }}
+          NIGHTLY: ${{ vars.NIGHTLY_CORPUS_TEST }}
         run: |
           source .venv/bin/activate
 
@@ -235,15 +237,29 @@ jobs:
                 echo "Decompilation unchanged for '$file'."
               else
                 echo "Decompilation CHANGED for '$file'."
+                changed_snapshots=$[changed_snapshots + 1]
+                if [[ "$NIGHTLY" == "1" ]]; then
+                  diff -u "snapshots/${snapshot_repo_file}" "${pytest_insta_snapshot_file}"
+                fi
                 cp "${pytest_insta_snapshot_file}" "snapshots/${snapshot_repo_file}"
               fi
             fi
           done
 
+          if [[ "$NIGHTLY" == "1" -a $changed_snapshots -gt 0 ]]; then
+            exit 1
+          fi
+
       - name: Push snapshots to snapshot repo
         env:
           SNAPSHOT_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NIGHTLY: ${{ vars.NIGHTLY_CORPUS_TEST }}
         run: |
+          if [[ "$NIGHTLY" == "1" ]]; then
+            echo "Nightly build detected; not pushing snapshots."
+            exit 0
+          fi
+
           # Use all the virtual environment Python packages (requests).
           source .venv/bin/activate
 
@@ -324,7 +340,13 @@ jobs:
       - name: Create pull request
         env:
           SNAPSHOT_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NIGHTLY: ${{ vars.NIGHTLY_CORPUS_TEST }}
         run: |
+          if [[ "$NIGHTLY" == "1" ]]; then
+            echo "Nightly build detected; not creating snapshots pull request."
+            exit 0
+          fi
+
           source .venv/bin/activate
 
           cd corpus_tests
