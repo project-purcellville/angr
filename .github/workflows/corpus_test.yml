@@ -253,7 +253,7 @@ jobs:
 
       - name: Push snapshots to snapshot repo
         env:
-          SNAPSHOT_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SNAPSHOT_TOKEN: ${{ secrets.SNAPSHOTS_PAT }}
           NIGHTLY: ${{ vars.NIGHTLY_CORPUS_TEST }}
         run: |
           if [[ "$NIGHTLY" == "1" ]]; then
@@ -340,7 +340,7 @@ jobs:
 
       - name: Create pull request
         env:
-          SNAPSHOT_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SNAPSHOT_TOKEN: ${{ secrets.SNAPSHOTS_PAT }}
           NIGHTLY: ${{ vars.NIGHTLY_CORPUS_TEST }}
         run: |
           if [[ "$NIGHTLY" == "1" ]]; then
@@ -400,14 +400,14 @@ jobs:
   #       uses: actions/checkout@v3
   #       with:
   #         repository: ${{ vars.SNAPSHOT_GITHUB_OWNER }}/${{ vars.SNAPSHOT_GITHUB_REPO }}
-  #         token: ${{ secrets.SNAPSHOT_ACCESS_TOKEN }}
+  #         token: ${{ secrets.SNAPSHOTS_PAT }}
   #         fetch-depth: 0
   #         ref: main
 
   #     - name: Create Pull Request
   #       uses: peter-evans/create-pull-request@v5
   #       with:
-  #         token: ${{ secrets.SNAPSHOT_ACCESS_TOKEN }}
+  #         token: ${{ secrets.SNAPSHOTS_PAT }}
   #         commit-message: "Update decompilation snapshots for comparison"
   #         branch: update-snapshots-${{ github.ref_name }}
   #         title: "Update decompilation snapshots"
